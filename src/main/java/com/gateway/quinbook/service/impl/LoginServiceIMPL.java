@@ -1,7 +1,9 @@
 package com.gateway.quinbook.service.impl;
 
+import com.gateway.quinbook.client.ClientService;
 import com.gateway.quinbook.dto.LoginRequestDTO;
 import com.gateway.quinbook.dto.LoginResponseDTO;
+import com.gateway.quinbook.dto.RegisterRequestDTO;
 import com.gateway.quinbook.entity.Login;
 import com.gateway.quinbook.entity.Sessions;
 import com.gateway.quinbook.repository.LoginRepository;
@@ -11,6 +13,7 @@ import com.gateway.quinbook.util.CustomHash;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.JsonString;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.Producer;
@@ -22,6 +25,7 @@ import org.springframework.stereotype.Service;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadLocalRandom;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
@@ -33,7 +37,7 @@ public class LoginServiceIMPL implements LoginService {
 
     public static Properties getPropertiesOfKafka(){
         Properties props = new Properties();
-        props.put("bootstrap.servers", "localhost:9092");
+        props.put("bootstrap.servers", "10.177.68.98:9092");
         props.put("acks", "all");
         props.put("retries", 0);
         props.put("linger.ms", 1);
@@ -48,6 +52,8 @@ public class LoginServiceIMPL implements LoginService {
     @Autowired
     private SessionRepository sessionRepository;
 
+    @Autowired
+    private ClientService clientService;
 
 
 
@@ -86,16 +92,24 @@ public class LoginServiceIMPL implements LoginService {
                     sessions.setUserName(requestDTO.getUserName());
                     sessionRepository.save(sessions);
                     responseDTO.setMessage("Success");
+                    responseDTO.setIsRegistered(true);
                     responseDTO.setSessionID(sessionID);
-                    kafkaMethod(requestDTO.getUserName(), sessionID+" "+"true");
+                    responseDTO.setUserName(requestDTO.getUserName());
+
+
+                    String a=kafkaMethod(requestDTO.getUserName(), sessionID);
+                    System.out.println(a);
                     return responseDTO;
                 } else {
-                    responseDTO.setMessage("FAILEDDD");
+                    responseDTO.setMessage("");
                     responseDTO.setSessionID("");
+                    responseDTO.setIsRegistered(true);
+                    return responseDTO;
                 }
             }
             responseDTO.setMessage("FAILED");
             responseDTO.setSessionID("");
+            responseDTO.setIsRegistered(false);
             return responseDTO;
         }
         //if isGoogle ; False
@@ -112,6 +126,7 @@ public class LoginServiceIMPL implements LoginService {
             try {
                 LoginResponseDTO responseDTO = new LoginResponseDTO();
                 GoogleIdToken idToken = verifier.verify(requestDTO.getToken());
+                System.out.println(idToken);
                 if (idToken != null) {
                     Payload payload = idToken.getPayload();
 
@@ -127,12 +142,26 @@ public class LoginServiceIMPL implements LoginService {
                     String locale = (String) payload.get("locale");
                     String familyName = (String) payload.get("family_name");
                     String givenName = (String) payload.get("given_name");
+                    RegisterRequestDTO registerRequestDTO = new RegisterRequestDTO();
+                    registerRequestDTO.setEmail(email);
+                    registerRequestDTO.setDateOfBirth(null);
+                    registerRequestDTO.setFirstName(givenName);
+                    registerRequestDTO.setGender(null);
+                    registerRequestDTO.setImg(null);
+                    registerRequestDTO.setLastName(familyName);
+                    registerRequestDTO.setPhoneNo(null);
+                    registerRequestDTO.setPassword("");
+                    clientService.registerUser(registerRequestDTO);
+
 
 
                     String emailId = email;
                     String[] splited = emailId.split("@");
                     emailId = splited[0];
                     sessions.setUserName(emailId);
+
+
+
                     String sessID = splited[0] + java.time.LocalDate.now().toString() + java.time.LocalTime.now().toString();
                     int random = ThreadLocalRandom.current().nextInt(1, 6);
                     for (int i = 0; i < random; i++) {
@@ -141,16 +170,25 @@ public class LoginServiceIMPL implements LoginService {
                     sessions.setSessionID(sessID);
                     sessions.setIsLoggedIn("true");
                     sessionRepository.save(sessions);
-                    kafkaMethod(emailId, sessID+" "+"true");
+                    kafkaMethod(emailId, sessID);
 
-                    responseDTO.setIsRegistered(emailVerified);
+
+                    Login login = new Login();
+
+                    Optional<Login> optional = loginRepository.findById(emailId);
+                    if(!optional.isPresent()){
+                        login.setUserName(emailId);
+                        login.setPassword("");
+                        loginRepository.save(login);}
+
+                    responseDTO.setIsRegistered(true);
                     responseDTO.setSessionID(sessID);
+                    responseDTO.setUserName(emailId);
+                     return responseDTO; }
 
-                    // Use or store profile information
-                    // ...
-                    return responseDTO;
-                } else {
-                    System.out.println("Invalid ID token.");
+
+                else {
+                    System.out.println("token is null");
                     responseDTO.setMessage("invalid token");
                 }
                 return responseDTO;
@@ -163,9 +201,15 @@ public class LoginServiceIMPL implements LoginService {
 
     }
 
-    private void kafkaMethod(String userName ,String sessionID){
+    private String kafkaMethod(String userName ,String sessionID){
         Producer<String,String> producer = new KafkaProducer<>(getPropertiesOfKafka());
-        producer.send(new ProducerRecord<>("session-details",userName,sessionID));
+        try{
+            producer.send(new ProducerRecord<>("session",userName + " " + sessionID)).get();
+        }catch (Exception e){
+            //do nothing
+        }
+
         producer.close();
+        return "successful";
     }
 }

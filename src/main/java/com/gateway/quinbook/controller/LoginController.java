@@ -20,8 +20,6 @@ public class LoginController {
 
     @PostMapping("")
     public LoginResponseDTO doLogin(@RequestBody LoginRequestDTO req){
-        //Cookie cookies[] = request.getCookies();
-        //System.out.println(cookies[0].getName());
         return loginService.doLogin(req);
     }
 }

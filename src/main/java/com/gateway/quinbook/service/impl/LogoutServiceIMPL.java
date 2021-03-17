@@ -20,19 +20,9 @@ public class LogoutServiceIMPL implements LogoutService {
         if(optional!=null){
             try{
                 sessionRepository.deleteSession(requestDTO.getSessionId());
-                // sessionRepository.updateSessionState("false",requestDTO.getUserName());
-                //clientService.setSessionInBookAndSearch(requestDTO.getUserName(),"false");
 
             }
             catch (Exception e){
-                // e.printStackTrace();
-            }
-            try{
-                //clientService.setSessionInBookAndSearch(requestDTO.getUserName(),"false");
-                //clientService.deleteSessionInBookAndSearch(requestDTO.getSessionId());
-            }
-            catch (Exception e){
-
             }
 
         }
